@@ -267,7 +267,11 @@ function openFile(f){
     </select>
     <input type="datetime-local" id="customDate" style="display:none">
 
-    <input type="file" id="proof" accept="*/*">
+   <label style="display:block;margin-top:8px;font-size:14px;opacity:.9">
+  📎 Attach Proof (Image / PDF / File)
+</label>
+<input type="file" id="proof" accept="image/*,.pdf,.doc,.docx">
+
 
     <button onclick="addEntry()">➕ Add Entry</button>
 
