@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Money Journal</title>
+
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0ef2d5">
+
+<style>
+*{font-family:Cambria,Candara,"Segoe UI",serif}
+body{
+  margin:0;background:#061214;color:#fff;
+  min-height:100vh;display:flex;
+  justify-content:center;align-items:center;padding:20px
+}
+button{
+  width:100%;padding:12px;border:none;
+  border-radius:30px;font-weight:800;
+  background:linear-gradient(90deg,#0ef2d5,#13f2ff);
+  margin:6px 0;cursor:pointer
+}
+.back{background:#444}
+input,select{
+  width:100%;padding:10px;border-radius:10px;
+  border:none;margin:6px 0
+}
+.app{
+  width:100%;max-width:560px;
+  background:#071e1d;padding:18px;
+  border-radius:20px;
+  box-shadow:0 0 40px rgba(14,242,213,.3)
+}
+.card{
+  background:#05201f;padding:12px;
+  border-radius:14px;margin:8px 0
+}
+.row{display:flex;justify-content:space-between;align-items:center}
+.smallBtn{
+  background:#ff4d6d;color:#fff;
+  padding:4px 10px;border-radius:8px
+}
+.in{color:#2cff9c}.out{color:#ff4d6d}
+table{width:100%;border-collapse:collapse}
+th,td{border-bottom:1px solid #444;padding:6px;text-align:center}
+
+/* LOCK */
+#lockScreen{
+  position:fixed;inset:0;background:#061214;
+  display:flex;align-items:center;justify-content:center;z-index:9999
+}
+.lockBox{
+  background:#071e1d;padding:24px;
+  border-radius:16px;max-width:360px;width:100%
+}
+</style>
+</head>
+
+<body>
+
+<div id="lockScreen">
+  <div class="lockBox">
+    <h2>🔒 Secure Journal</h2>
+    <input type="password" id="passInput" placeholder="Password">
+    <button onclick="unlock()">Unlock</button>
+    <button onclick="biometricUnlock()">👆 Fingerprint</button>
+    <div id="lockError"></div>
+  </div>
+</div>
+
+<div class="app">
+  <h2 id="title">📁 Folders</h2>
+  <div id="view"></div>
+</div>
+
+<script>
+/* ===== CONFIG ===== */
+const STORAGE_KEY="money_journal_data";
+let APP_PASSWORD=localStorage.getItem("APP_PASSWORD")||"1234";
+const BIO_KEY="biometric_enabled";
+const IDLE_TIME=2*60*1000;
+
+/* ===== STATE ===== */
+let data={},currentFolder=null,currentFile=null,idleTimer;
+
+/* ===== DOM ===== */
+const lockScreen=document.getElementById("lockScreen");
+const passInput=document.getElementById("passInput");
+const lockError=document.getElementById("lockError");
+const titleEl=document.getElementById("title");
+const viewEl=document.getElementById("view");
+
+/* ===== STORAGE ===== */
+function loadData(){data=JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}")}
+function saveData(){localStorage.setItem(STORAGE_KEY,JSON.stringify(data))}
+
+/* ===== LOCK ===== */
+function unlock(){
+  if(passInput.value===APP_PASSWORD){
+    lockScreen.style.display="none";
+    loadData();home();resetIdle();
+  }else lockError.innerText="Wrong password";
+}
+function lockApp(){
+  lockScreen.style.display="flex";
+  passInput.value="";
+}
+
+/* ===== AUTO LOCK ===== */
+function resetIdle(){
+  clearTimeout(idleTimer);
+  idleTimer=setTimeout(lockApp,IDLE_TIME);
+}
+["click","mousemove","keydown","touchstart"]
+.forEach(e=>document.addEventListener(e,resetIdle));
+
+/* ===== BIOMETRIC ===== */
+function isBio(){return window.PublicKeyCredential}
+async function registerBiometric(){
+  if(!isBio()) return alert("Not supported");
+  try{
+    await navigator.credentials.create({
+      publicKey:{
+        challenge:new Uint8Array(32),
+        rp:{name:"Money Journal"},
+        user:{id:new Uint8Array(16),name:"user",displayName:"User"},
+        pubKeyCredParams:[{type:"public-key",alg:-7}],
+        authenticatorSelection:{authenticatorAttachment:"platform",userVerification:"required"}
+      }
+    });
+    localStorage.setItem(BIO_KEY,"true");
+    alert("Fingerprint enabled");
+  }catch{}
+}
+async function biometricUnlock(){
+  if(localStorage.getItem(BIO_KEY)!=="true") return alert("Not enabled");
+  try{
+    await navigator.credentials.get({
+      publicKey:{challenge:new Uint8Array(32),userVerification:"required"}
+    });
+    lockScreen.style.display="none";
+    loadData();home();resetIdle();
+  }catch{}
+}
+
+/* ===== HOME ===== */
+function home(){
+  titleEl.innerText="📁 Folders";
+  viewEl.innerHTML=`
+    <input id="fname" placeholder="New Folder">
+    <button onclick="addFolder()">➕ Add Folder</button>
+    <button onclick="toggle('folders')">📂 View Folders</button>
+    <div id="folders"></div>
+    <button onclick="openPassword()">🔐 Set New Password</button>
+    <button onclick="registerBiometric()">👆 Enable Fingerprint</button>
+    <button onclick="backupData()">☁ Backup</button>
+    <input type="file" id="restore" hidden onchange="restoreData(this)">
+    <button onclick="restore.click()">♻ Restore</button>
+  `;
+  renderFolders();
+}
+
+/* ===== FOLDERS ===== */
+function toggle(id){
+  const d=document.getElementById(id);
+  d.style.display=d.style.display==="block"?"none":"block";
+}
+function renderFolders(){
+  const box=document.getElementById("folders");
+  box.innerHTML="";
+  for(let f in data){
+    box.innerHTML+=`
+      <div class="card row">
+        <b onclick="openFolder('${f}')">${f}</b>
+        <button onclick="folderMenu('${f}')">Update</button>
+      </div>`;
+  }
+}
+function folderMenu(f){
+  const a=prompt("1 Edit  |  2 Delete");
+  if(a=="1"){
+    const n=prompt("New name",f);
+    if(n){data[n]=data[f];delete data[f];saveData();home();}
+  }
+  if(a=="2" && confirm("Delete?")){
+    delete data[f];saveData();home();
+  }
+}
+function addFolder(){
+  const n=fname.value;
+  if(n && !data[n]){data[n]={};saveData();home();}
+}
+
+/* ===== FILES ===== */
+function openFolder(f){
+  currentFolder=f;
+  titleEl.innerText="📂 "+f;
+  viewEl.innerHTML=`
+    <button class="back" onclick="home()">← Back</button>
+    <input id="file" placeholder="New File">
+    <button onclick="addFile()">➕ Add File</button>
+    <button onclick="toggle('files')">📄 View Files</button>
+    <div id="files"></div>
+  `;
+  renderFiles();
+}
+function renderFiles(){
+  const box=document.getElementById("files");
+  box.innerHTML="";
+  for(let fi in data[currentFolder]){
+    box.innerHTML+=`
+      <div class="card row">
+        <b onclick="openFile('${fi}')">${fi}</b>
+        <button onclick="fileMenu('${fi}')">Update</button>
+      </div>`;
+  }
+}
+function fileMenu(f){
+  const a=prompt("1 Edit  |  2 Delete");
+  if(a=="1"){
+    const n=prompt("New name",f);
+    if(n){data[currentFolder][n]=data[currentFolder][f];delete data[currentFolder][f];saveData();openFolder(currentFolder);}
+  }
+  if(a=="2" && confirm("Delete?")){
+    delete data[currentFolder][f];saveData();openFolder(currentFolder);
+  }
+}
+function addFile(){
+  const n=file.value;
+  if(n && !data[currentFolder][n]){data[currentFolder][n]=[];saveData();openFolder(currentFolder);}
+}
+
+/* ===== FILE VIEW ===== */
+function openFile(f){
+  currentFile=f;
+  const e=data[currentFolder][f];
+  titleEl.innerText=`📄 ${f}`;
+  viewEl.innerHTML=`
+    <button class="back" onclick="openFolder('${currentFolder}')">← Back</button>
+    <select id="type"><option value="in">Money In</option><option value="out">Money Out</option></select>
+    <input id="amt" placeholder="Amount">
+    <input id="note" placeholder="Note">
+    <select id="dateType"><option value="now">Current Date</option><option value="custom">Custom Date</option></select>
+    <input type="datetime-local" id="customDate" style="display:none">
+    <button onclick="addEntry()">➕ Add Entry</button>
+    <table>
+      <tr><th>Type</th><th>Amt</th><th>Note</th><th>Date</th><th>Action</th></tr>
+      ${e.map((x,i)=>`
+        <tr>
+          <td class="${x.type}">${x.type}</td>
+          <td>${x.amt}</td>
+          <td>${x.note}</td>
+          <td>${new Date(x.date).toLocaleString()}</td>
+          <td><button onclick="entryMenu(${i})">Update</button></td>
+        </tr>`).join("")}
+    </table>
+  `;
+  dateType.onchange=()=>customDate.style.display=dateType.value==="custom"?"block":"none";
+}
+function addEntry(){
+  const d=dateType.value==="custom"&&customDate.value?customDate.value:new Date().toISOString();
+  data[currentFolder][currentFile].push({
+    type:type.value,amt:+amt.value,note:note.value,date:d
+  });
+  saveData();openFile(currentFile);
+}
+function entryMenu(i){
+  const a=prompt("1 Edit  |  2 Delete");
+  if(a=="2"){data[currentFolder][currentFile].splice(i,1);saveData();openFile(currentFile);}
+}
+
+/* ===== PASSWORD ===== */
+function openPassword(){
+  const p=prompt("New Password");
+  if(p){localStorage.setItem("APP_PASSWORD",p);APP_PASSWORD=p;alert("Updated");}
+}
+
+/* ===== BACKUP ===== */
+function backupData(){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:"application/json"}));
+  a.download="money_journal_backup.json";a.click();
+}
+function restoreData(i){
+  const r=new FileReader();
+  r.onload=()=>{data=JSON.parse(r.result);saveData();home();};
+  r.readAsText(i.files[0]);
+}
+
+/* ===== PWA ===== */
+if("serviceWorker" in navigator)
+  navigator.serviceWorker.register("sw.js");
+</script>
+</body>
+</html>
