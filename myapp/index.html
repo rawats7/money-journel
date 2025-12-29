@@ -313,7 +313,6 @@ function openFile(f){
                      onclick="viewProof('${x.proof.data}')">
                    <div>
                      <button onclick="replaceProof(${i})">♻</button>
-                     <button class="smallBtn" onclick="removeProof(${i})">🗑</button>
                    </div>`
                 : x.proof.name
               : `<button onclick="replaceProof(${i})">📎</button>`
@@ -370,10 +369,6 @@ function replaceProof(i){
     r.readAsDataURL(f);
   };
   input.click();
-}
-function removeProof(i){
-  delete data[currentFolder][currentFile][i].proof;
-  saveData();openFile(currentFile);
 }
 function viewProof(src){
   previewImg.src=src;
